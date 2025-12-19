@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
+from app.api.upload import router as upload_router
+from app.api.chat import router as chat_router
 
 # Initialize the API
 app = FastAPI(
@@ -16,6 +18,10 @@ def health_check():
         "version": settings.VERSION,
         "model": settings.LLM_MODEL
     }
+
+app.include_router(upload_router, prefix="/api/documents", tags=["Documents"])
+
+app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
 
 # Development Server
 if __name__ == "__main__":
