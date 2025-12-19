@@ -4,7 +4,9 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 from app.core.config import settings
 
 class RagService:
@@ -61,19 +63,32 @@ class RagService:
         """
         Searches the database for answers to the user's question.
         """
-        # Create the Chain
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff",
-            retriever=self.vector_store.as_retriever(search_kwargs={"k": 4}),
-            return_source_documents=True
-        )
-
-        # Run the question
-        result = qa_chain.invoke({"query": question})
+        # Create the retriever
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 4})
         
-        # Format the output
+        # Create the prompt template
+        template = """Answer the question based only on the following context: {context}
+                Question: {question}
+                """
+        prompt = ChatPromptTemplate.from_template(template)
+        
+        # Create the chain
+        def format_docs(docs):
+            return "\n\n".join(doc.page_content for doc in docs)
+        
+        chain = (
+            {"context": retriever | format_docs, "question": RunnablePassthrough()}
+            | prompt
+            | self.llm
+            | StrOutputParser()
+        )
+        
+        answer = chain.invoke(question)
+        
+        docs = retriever.invoke(question)
+        sources = list(set([doc.metadata.get("source") for doc in docs]))
+        
         return {
-            "answer": result["result"],
-            "sources": list(set([doc.metadata.get("source") for doc in result["source_documents"]]))
+            "answer": answer,
+            "sources": sources
         }
